@@ -1,0 +1,341 @@
+---
+title: "Explore Bikeshare Data"
+author: "Samantha Nguyen"
+date: "05/05/2021"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+getwd()
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(scales)
+library(magrittr)
+library(chron)
+library(tidyr)
+```
+
+## Introduction 
+
+In this project, the data provided by Motivate (a bike share system) was used to uncover bike share usage patterns. This exploration focused on data from three cities: Chicago, New York City and Washington DC; to answer the following questions:
+
+1. Popular times of travel across all cities based start time:
+   a. What is the most common month?
+   b. What is the most common day of week?
+   c. What is the most common hour of day?
+  
+2. User Information:
+   a. What is the percentage of each user type for each city?
+   b. What are the age and gender distributions in New York City and Chicago?
+   c. What is the count by age group for each city?
+   d. What is the count of each gender in New York City and Chicago?
+
+
+### Inspecting the Data
+
+Data in each city was loaded and inspected separately before combining for further analysis.
+
+```{r common, include =FALSE}
+# code that is common across all three datasets goes here
+ylabel <- 'Bicycles rented'
+  
+```
+#### Chicago summary
+
+```{r chi,include=FALSE}
+# Load Chicago data, replace blanks with NA
+chi <- read.csv('chicago.csv', row.names=1,na.strings = c("","NA"),stringsAsFactors = FALSE)
+
+# A quick check the data after loading
+glimpse(chi)
+
+# check for missing values
+colSums(is.na(chi))
+
+chi <- transform(chi
+         ,Start.Time = as.POSIXlt(Start.Time,format="%Y-%m-%d %H:%M:%S")
+         ,End.Time = as.POSIXlt(End.Time,format="%Y-%m-%d %H:%M:%S")
+         ,User.Type = as.factor(User.Type)
+         ,Gender = as.factor(Gender))
+```
+
+```{r chi stats, echo=FALSE}
+# summary of Chicago data
+summary(chi)
+```
+#### New York City summary
+```{r ny, include=FALSE}
+# Load New York data, replace blanks with NA
+ny <- read.csv('new-york-city.csv', row.names=1,na.strings = c("","NA"),stringsAsFactors = FALSE)
+glimpse(ny)
+
+# check missing data in each column
+colSums(is.na(ny))
+
+# Convert data type as required
+ny <- transform(ny
+         ,Start.Time = as.POSIXlt(Start.Time,format="%Y-%m-%d %H:%M:%S")
+         ,End.Time = as.POSIXlt(End.Time,format="%Y-%m-%d %H:%M:%S")
+         ,User.Type = as.factor(User.Type)
+         ,Gender = as.factor(Gender))
+
+```
+
+```{r ny stats,echo=FALSE}
+# summary of New York City data
+summary(ny)
+```
+#### Washington summary
+```{r wash, include=FALSE}
+# Load Chicago data, replace blanks with NA
+wash <- read.csv('washington.csv', row.names=1,na.strings = c("","NA"),stringsAsFactors = FALSE)
+glimpse(wash)
+colSums(is.na(wash))
+
+# Transform Washington data type
+wash <- transform(wash
+         ,Start.Time = as.POSIXlt(Start.Time,format="%Y-%m-%d %H:%M:%S")
+         ,End.Time = as.POSIXlt(End.Time,format="%Y-%m-%d %H:%M:%S")
+         ,User.Type = as.factor(User.Type))
+
+```
+```{r wash stat, echo=FALSE}
+# summary of Washington data
+summary(wash)
+```
+### Data Preparation
+One *Dependent* user type was found while inspecting Chicago dataset. This was considered to be an outlier and removed. 
+
+Based on the questions posted under the Introduction and because no Gender and Birth Year was provided in the Washington dataset, two separate datasets were prepared: one combining New York City and Chicago, and the other combining data from all three cities.
+
+```{r data prep, include = FALSE}
+#****************************************************************
+#       First dataset - combine ny and chi                      *
+#****************************************************************
+
+# Use anonymous function to define %notin%
+`%notin%` <- function(a,b) ! a %in% b
+# Remove Dependent user type from Chicago dataset
+chi <- chi %>% filter(User.Type %notin% "Dependent") 
+
+# Add a new City column to each dataset before combining them
+ny$City <- c('ny') 
+chi$City <- c('chi')
+wash$City <- c('wash')
+nychiDat <- rbind(ny,chi)
+
+# a quick check of data type
+sapply(nychiDat,class)
+
+# transform data and added some new variables
+nychiDat <- nychiDat %>% 
+    mutate(Start.Date = as.Date(Start.Time,format="%m/%d/%Y")) %>%
+    mutate(Start.Year = year(Start.Date)) %>%
+    mutate(Age = Start.Year - Birth.Year) %>%
+    mutate(Age.Group = cut(Age, breaks = seq(0, 100, 10), labels = c("0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90","90-100"),include.lowest = TRUE))
+
+
+#****************************************************************
+#       Second dataset - combine all cities (ny,chi and wash)   *
+#****************************************************************
+allCityDat <- structure(list(Start.Time=as.Date(character())
+                    ,End.Time=as.Date(character())
+                    ,Trip.Duration = integer()
+                    ,Start.Station=character()
+                    ,End.Station = character()
+                    ,User.Type=factor()
+                    ,City=factor())
+                    ,class="data.frame")
+
+cities <- list(nychiDat,wash)
+for (cidx in cities) {
+  t <- subset(cidx,select=c(Start.Time:User.Type,City))
+  allCityDat <- rbind(allCityDat,t)
+}
+
+time.tag <- chron(times=c("00:00:00", "03:00:00", "06:00:00", "09:00:00", "12:00:00","15:00:00","18:00:00","21:59:00"))
+
+allCityDat <- allCityDat %>% 
+    mutate(DateOnly = as.Date(Start.Time,format="%m/%d/%Y")) %>%
+    mutate(WeekDay = weekdays(DateOnly,abbreviate=TRUE),
+           Month = month(as.Date(DateOnly,format=("%m/%d/%Y")),label=TRUE,abbr=TRUE),
+           Time = times(format(Start.Time, "%H:%M:%S"))) %>%
+    mutate(Time.Tag = cut(Time, 
+                          breaks=time.tag,
+                          labels = c("00-03","03-06","06-09","09-12","12-15","15-18","18-21"),
+                          include.lowest =TRUE))
+# dataset used in 2a
+userFreq <- allCityDat %>% 
+  filter(!is.na(allCityDat$User.Type)) %>% 
+  group_by(City,User.Type) %>% 
+  summarise(cnt=n()) %>% 
+  mutate(pct = cnt/sum(cnt),
+         lbl = percent(pct))
+
+```
+#### Dataset used for answering questions
+After shaping and transforming the data we have:
+
+* Dataset 1 (nychiDat) which consists of `r length(nychiDat)` variables and `r nrow(nychiDat)` observations. 
+The variable names are:
+  `r names(nychiDat)`
+
+* Dataset 2 (allCityDat) which consists of `r length(allCityDat)` variables and `r nrow(allCityDat)` observations.
+  The variable names are:
+`r names(allCityDat)`
+
+*Note that in both datasets the variable 'City' was added to identify which data belongs to which city.* 
+
+### Results and Discussion
+
+#### 1. Popular times of travel across all cities based on start time
+
+**_1a. What is the most common month?_**
+
+From Figure 1 below, we can see that June appeared to have the most number of bicycles rented across all three cities as indicated by the magnitude of the bar under June. *Perhaps the weather was getting warmer and more pleasant to ride bicycles!*
+
+```{r 1a, echo=FALSE,warning=FALSE, message=FALSE, out.width='100%'}
+#print('1.a')
+allCityDat %>% group_by(City,Month) %>% summarise(cnt=n()) %>%
+    ggplot(aes(x = Month, y = cnt,fill=City)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~ City, ncol = 3) +
+    labs(title = "Monthly Rentals per City",
+         #y = "Bicycles rented",
+         y=ylabel,
+         x = "Month",
+         caption = "Figure 1") +
+    theme(legend.position="top",
+          plot.title=element_text(family="Palatino",size =15,colour = "blue"),
+          plot.caption=element_text(hjust = 0))
+
+```
+
+**_1b. What is the most common day of week?_**
+
+Figure 2 below revealed that Wednesday was the most common day of the week for users renting bicyles in New York City and Washington. On the contrary, Tuesday was the most common day for Chicago users.
+As a side note, Saturday and Sunday appeared to be the least common days across all cities.
+```{r 1b,echo=FALSE, out.width='100%'}
+
+ggplot(data=allCityDat) + 
+  geom_bar(aes(x=WeekDay,fill=City),position = position_dodge(preserve = "single")) +
+  facet_wrap(~ City, ncol = 3) +
+  labs(title="Weekly Rentals per City",
+         y=ylabel,
+         x="Day of Week",
+         caption="Figure 2") +
+  theme(legend.position="top",
+        plot.title=element_text(family="Palatino",size =15,colour = "blue"),
+        plot.caption=element_text(hjust = 0))
+```
+
+**_1c. What is the most common 3 hour period of day?_**
+
+As illustrated in Figure 3, each city revealed a different period during the day as the most common, unlike the similarities in the most common month and day. In Washington, the most common period was in the morning between 6am and 9am. In Chicago the most common period was in the afternoon between 3pm and 6pm while in New York City, most common period was in the evening between 6pm and 9pm. 
+```{r 1c, echo=FALSE,out.width='100%'}
+
+allCityDat %>% filter(Time.Tag != 'NA') %>%
+  ggplot(aes(x=Time.Tag,fill=City),position="dodge") + 
+  geom_bar(position="dodge") +
+  labs(title="Time of usage",
+        subtitle="(3-hour intervals)",
+        y=ylabel,
+        x="Time (three hour period)",
+        caption="Figure 3") +
+  theme(legend.position="top",
+        plot.title=element_text(family="Palatino",size =15,colour = "blue"),
+        plot.caption=element_text(hjust = 0))
+
+```
+
+#### 2. User Information
+
+**_2a. What is the percentage of each user type for each city?_**
+
+As depicted in Figure 4, there was a high percentage of 'Subscriber' users across all three cities: 80% in Chicago, 90% in New York City and 74% in Washington DC. The percentage for 'Customer' users was much smaller: from 20% to 26% in Chicago and Washington respectively and only 10% in New York City.
+
+```{r 2.a, echo=FALSE,out.width='100%'}
+ggplot(userFreq ,aes(x=City,y=pct,fill=User.Type)) +
+  geom_bar(stat="identity",position="fill") +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  geom_text(aes(label=lbl),size=3,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title="User Type by City",
+       y="Percent",
+       x="City",
+       fill="User Type",
+       caption = "Figure 4") +
+  theme(plot.title=element_text(family="Palatino",size =15,colour = "blue"),
+        plot.caption=element_text(hjust = 0))
+
+```
+
+**_2b. What are the age and gender distributions in each city, include outliers?_**
+
+As shown in Figure 5 of the boxplot, female and male users in New York City were slightly older than female and male users in Chicago. The data distribution appeared positively skewed in all cases, except for male in New York City which has the least skewness. In othe words, the lower half of the data has less variability than the upper half. The shape suggested that bike share usage favoured younger females and males in both cities.
+
+From looking at the center of the boxplot under female. Younger females tend to make more use of the bike sharing system than older females in both cities. Similarly for males across cities, the bike sharing system tended to be used by younger males.
+
+There were also outliers appearing in all plots, with one outlier in particular showing a male in Chicago under five years old which suggests an error in data entry. 
+
+```{r 2.b, echo=FALSE, warning=FALSE,out.width='100%'}
+nychiDat %>% filter(!is.na(Gender)) %>%
+  ggplot(aes(x=Gender,y=Age,fill=City)) + 
+  geom_boxplot(outlier.color = "#ae4271") +
+  scale_y_continuous(minor_breaks=seq(0,140,5),breaks=seq(0,140,5)) +
+  labs(title="Age and Gender Distribution",
+       caption = "Figure 5") +
+  theme(plot.title=element_text(family="Palatino",size =15,colour = "blue"),
+        plot.caption=element_text(hjust = 0))
+```
+
+**_2c what is the most common age group for each city?_**
+
+The most common age group as shown in Figure 6 below was between 20 and 30 for Chicago users and between 30 and 40 for New York City users. This finding was also supported by the boxplot above.
+
+```{r 2c, echo=FALSE,message=FALSE,warning=FALSE,out.width='100%'}
+nychiDat %>% filter(!is.na(Gender)&!is.na(Age.Group)) %>% 
+  group_by(City,Age.Group,) %>% summarise(cnt=n()) %>%
+  ggplot(aes(x=Age.Group,y=cnt,fill=City)) +
+  geom_col(stat="identity", position="dodge") +
+  labs(title="Age Group Frequency",
+       y=ylabel,
+       x="Age group",
+       caption = "Figure 6") +
+  theme(plot.title=element_text(family="Palatino",size =15,colour = "blue"),
+        plot.caption=element_text(hjust = 0))
+
+```
+
+**_2d. What are the counts of each gender in NYC and Chicago?_**
+
+As shown in Figure 7 below, there were nearly 1000 more female users in New York City compared to Chicago female users *(66783 - New York City, 57758 - Chicago)*. Similarly, there was also more male users in New York City compared to male in Chicago, slightly over 20,000 *(204008 - New York City,181189 - Chicago)*
+```{r 2.d, echo=FALSE, message=FALSE,warning=FALSE,out.width='100%'}
+nychiDat %>% filter(!is.na(Gender)) %>% group_by(City,Gender) %>% summarise(cnt=n()) %>%
+  ggplot(aes(x=Gender,y=cnt,fill=City)) + 
+  geom_col(stat="identity", position="dodge") +
+  geom_text(aes(label=cnt),position=position_dodge((0.9))) +
+  labs(title="Gender Frequency in New York and Chicago",
+       y=ylabel,
+       caption="Figure 7") +
+  theme(plot.title=element_text(family="Palatino",size =15,colour = "blue"),
+        legend.position = "top",
+        plot.caption=element_text(hjust = 0))
+```
+
+### Conclusion
+
+This study has applied exploratory data analysis techniques to uncover bike share usage patterns in Chicago, New York City and Washington, and to answer a number of questions posted in the Introduction.
+June was found to be the most common month for bicycle users across all three cities. Wednesday was common day of the week in New York City and Washington while Tuesday was the most common day in Chicago.
+The study found that the most common time of usage in Washington was in morning between 6am and 9am, while in Chicago the most common period was between 3pm and 6pm and in New York City it was between 6pm and 9pm.
+
+The study also found that users tended to be younger, and both female and male users in New York City tended to be older than those in Chicago. 
+
+The findings of this report can be used in improving utilisation of resources and services, ensuring there are enough bicyles for sharing during popular times of travel, and ensuring that services are catering for common user types and age.
