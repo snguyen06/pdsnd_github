@@ -12,7 +12,7 @@ Replace the Project Title
 Describe what your project is about and what it does
 
 ### Files used
-Include the files used
+*Include the files used*
 
 * SNguyen_Bike_EDA.Rmd
 
