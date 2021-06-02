@@ -232,7 +232,8 @@ ggplot(data=allCityDat) +
          caption="Figure 2") +
   theme(legend.position="top",
         plot.title=element_text(family="Palatino",size =15,colour = "blue"),
-        plot.caption=element_text(hjust = 0))
+        plot.caption=element_text(hjust = 0),
+        axis.text.x=element_text(angle = 90))
 ```
 
 **_1c. What is the most common 3 hour period of day?_**
@@ -310,7 +311,8 @@ nychiDat %>% filter(!is.na(Gender)&!is.na(Age.Group)) %>%
        x="Age group",
        caption = "Figure 6") +
   theme(plot.title=element_text(family="Palatino",size =15,colour = "blue"),
-        plot.caption=element_text(hjust = 0))
+        plot.caption=element_text(hjust = 0),
+        axis.ticks = element_line(colour="blue",size=(1.5)))
 
 ```
 
